@@ -10,10 +10,9 @@ from flask import Flask, render_template_string, request, jsonify, send_from_dir
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 
-# --- CONFIGURAÇÃO DE DIRETÓRIOS ---
-PASTA_DOWNLOAD = os.path.join(os.getcwd(), "musicas_baixadas")
-if not os.path.exists(PASTA_DOWNLOAD):
-    os.makedirs(PASTA_DOWNLOAD)
+# --- CONFIGURAÇÃO DE DIRETÓRIOS (USANDO /TMP PARA O RENDER) ---
+# No Render, criar pastas no diretório do app pode dar erro. /tmp é livre.
+PASTA_DOWNLOAD = "/tmp" 
 
 # --- CONFIGURAÇÃO YT-DLP ---
 YTDLP_ARGS = [
@@ -139,7 +138,6 @@ PLAYER_CONTENT = """
             </audio>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <!-- Botão de baixar corrigido para não baixar de novo no terminal -->
                 <a href="/force_download/{{ filename }}?title={{ title }}" 
                    class="btn-grad py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-xl">
                     <i class="fas fa-download"></i> BAIXAR AGORA
@@ -170,6 +168,7 @@ def home():
 @app.route('/api/search', methods=['POST'])
 def api_search():
     query = request.json.get('query')
+    # Limitado a 5 resultados para ser rápido no Render
     cmd = ['yt-dlp'] + YTDLP_ARGS + ['--quiet', '--no-playlist', '--flat-playlist', '--dump-json', f'ytsearch5:{query}']
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -193,9 +192,8 @@ def player(vid):
     filename = f"{vid}.mp3"
     filepath = os.path.join(PASTA_DOWNLOAD, filename)
 
-    # O Terminal baixa apenas uma vez para o servidor se não existir
     if not os.path.exists(filepath):
-        print(f"[*] Baixando no Servidor: {title}")
+        # Baixa diretamente na /tmp
         cmd = ['yt-dlp'] + YTDLP_ARGS + [
             '--extract-audio', '--audio-format', 'mp3', 
             '--audio-quality', '0', '--output', filepath,
@@ -205,12 +203,10 @@ def player(vid):
 
     return render_3d_page(PLAYER_CONTENT, vid=vid, title=title, filename=filename)
 
-# Rota de Reprodução (Streaming)
 @app.route('/play/<path:name>')
 def play(name):
     return send_from_directory(PASTA_DOWNLOAD, name)
 
-# Rota de Download Forçado (Chrome) - Não baixa de novo no terminal
 @app.route('/force_download/<path:name>')
 def force_download(name):
     title = request.args.get('title', 'Musica')
@@ -221,26 +217,20 @@ def force_download(name):
 def ping():
     return "Acordado!", 200
 
-# --- SISTEMA ANTI-SLEEP (PING) ---
+# --- ANTI-SLEEP ---
 def anti_sleep():
-    time.sleep(15)
     url_render = os.environ.get("RENDER_EXTERNAL_URL")
+    if not url_render: return
     
-    if not url_render:
-        print("[!] RENDER_EXTERNAL_URL não encontrada. O auto-ping não funcionará.")
-        return
-
-    print(f"[!] Anti-Sleep Ativado: {url_render}")
     while True:
         try:
             requests.get(f"{url_render}/ping", timeout=10)
         except:
             pass
-        time.sleep(240) # 4 minutos
+        time.sleep(600) # Ping a cada 10 min
 
 # --- INICIALIZAÇÃO ---
 if __name__ == '__main__':
-    # Ativa o Ping apenas se estiver no Render
     if os.environ.get("RENDER"):
         threading.Thread(target=anti_sleep, daemon=True).start()
     
