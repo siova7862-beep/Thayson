@@ -10,9 +10,9 @@ from flask import Flask, render_template_string, request, jsonify, send_from_dir
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 
-# --- CONFIGURAÇÃO DE DIRETÓRIOS (USANDO /TMP PARA O RENDER) ---
-# No Render, criar pastas no diretório do app pode dar erro. /tmp é livre.
-PASTA_DOWNLOAD = "/tmp" 
+# --- CONFIGURAÇÃO DE DIRETÓRIOS ---
+# No Render, /tmp é o único local com escrita garantida sem configurações extras
+PASTA_DOWNLOAD = "/tmp"
 
 # --- CONFIGURAÇÃO YT-DLP ---
 YTDLP_ARGS = [
@@ -38,7 +38,7 @@ def render_3d_page(content_html, **kwargs):
             body {{ font-family: 'Outfit', sans-serif; background: #f0f2f9; color: #1b2559; overflow-x: hidden; }}
             .card-3d {{ background: white; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); transition: 0.3s; border: 1px solid rgba(255,255,255,0.8); }}
             .card-3d:hover {{ transform: translateY(-5px); box-shadow: 0 20px 40px rgba(67, 24, 255, 0.1); }}
-            .btn-grad {{ background: linear-gradient(135deg, #4318FF 0%, #868CFF 100%); color: white; transition: 0.3s; }}
+            .btn-grad {{ background: linear-gradient(135deg, #4318FF 0%, #868CFF 100%); color: white; transition: 0.3s; font-weight: bold; }}
             .btn-grad:hover {{ transform: scale(1.02); opacity: 0.9; }}
             .loader-spin {{ border-top-color: #4318FF; animation: spin 1s linear infinite; }}
             @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
@@ -49,7 +49,7 @@ def render_3d_page(content_html, **kwargs):
         {content_html}
         <div id="loader" class="hidden fixed inset-0 bg-white/90 backdrop-blur-md z-[100] flex flex-col items-center justify-center">
             <div class="w-16 h-16 border-4 border-slate-100 loader-spin rounded-full"></div>
-            <p class="mt-4 font-bold text-indigo-600 animate-pulse">PROCESSANDO ÁUDIO...</p>
+            <p class="mt-4 font-bold text-indigo-600 animate-pulse uppercase tracking-widest">Processando Áudio Original...</p>
         </div>
         <script>
             function showLoader() {{ document.getElementById('loader').classList.remove('hidden'); }}
@@ -68,7 +68,7 @@ HOME_CONTENT = """
                 <i class="fas fa-compact-disc fa-spin text-4xl text-indigo-600"></i>
             </div>
             <h1 class="text-5xl font-black mb-4 text-slate-800 tracking-tighter">MUSIC<span class="text-indigo-600">3D</span></h1>
-            <p class="text-slate-500">Busque e transforme links em MP3 Instantâneo</p>
+            <p class="text-slate-500 font-medium">Busque e converta músicas para MP3 no servidor</p>
         </div>
 
         <div class="relative mb-10 group">
@@ -76,7 +76,7 @@ HOME_CONTENT = """
                 class="w-full p-6 rounded-3xl shadow-xl border-none outline-none text-lg transition-all focus:ring-4 focus:ring-indigo-100" 
                 placeholder="Nome da música ou artista..."
                 onkeypress="if(event.key==='Enter') search()">
-            <button onclick="search()" class="btn-grad absolute right-3 top-3 bottom-3 px-8 rounded-2xl font-bold shadow-lg">Buscar</button>
+            <button onclick="search()" class="btn-grad absolute right-3 top-3 bottom-3 px-8 rounded-2xl shadow-lg">Buscar</button>
         </div>
 
         <div id="results" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
@@ -112,7 +112,7 @@ HOME_CONTENT = """
                         </div>
                     `;
                 });
-            } catch (e) { alert("Erro ao buscar"); }
+            } catch (e) { alert("Erro na busca."); }
             finally { document.getElementById('loader').classList.add('hidden'); }
         }
     </script>
@@ -130,7 +130,7 @@ PLAYER_CONTENT = """
             
             <h2 class="text-2xl font-black mb-2 text-slate-800 leading-tight">{{ title }}</h2>
             <div class="flex justify-center gap-2 mb-8">
-                <span class="bg-indigo-100 text-indigo-600 text-[10px] px-3 py-1 rounded-full font-bold uppercase">MP3 320kbps</span>
+                <span class="bg-indigo-100 text-indigo-600 text-[10px] px-3 py-1 rounded-full font-bold uppercase">MP3 Original 320kbps</span>
             </div>
 
             <audio id="player" controls autoplay class="mb-8">
@@ -139,24 +139,16 @@ PLAYER_CONTENT = """
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <a href="/force_download/{{ filename }}?title={{ title }}" 
-                   class="btn-grad py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-xl">
+                   class="btn-grad py-4 rounded-2xl flex items-center justify-center gap-2 shadow-xl">
                     <i class="fas fa-download"></i> BAIXAR AGORA
                 </a>
-                <button onclick="share()" class="bg-slate-800 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-black transition">
+                <button onclick="navigator.clipboard.writeText(window.location.href);alert('Link copiado!')" class="bg-slate-800 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-black transition">
                     <i class="fas fa-share-alt"></i> COMPARTILHAR
                 </button>
             </div>
-            <p class="mt-6 text-[10px] text-slate-300 font-bold uppercase tracking-widest">Processado pelo Servidor MusicDash</p>
+            <p class="mt-6 text-[10px] text-slate-300 font-bold uppercase tracking-widest">Processado pelo Servidor MusicDash (Render)</p>
         </div>
     </div>
-
-    <script>
-        function share() {
-            const url = window.location.href;
-            navigator.clipboard.writeText(url);
-            alert("Link de compartilhamento copiado!");
-        }
-    </script>
 """
 
 # --- ROTAS ---
@@ -168,7 +160,6 @@ def home():
 @app.route('/api/search', methods=['POST'])
 def api_search():
     query = request.json.get('query')
-    # Limitado a 5 resultados para ser rápido no Render
     cmd = ['yt-dlp'] + YTDLP_ARGS + ['--quiet', '--no-playlist', '--flat-playlist', '--dump-json', f'ytsearch5:{query}']
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -193,19 +184,25 @@ def player(vid):
     filepath = os.path.join(PASTA_DOWNLOAD, filename)
 
     if not os.path.exists(filepath):
-        # Baixa diretamente na /tmp
+        print(f"[*] Iniciando Download no Render: {title}")
         cmd = ['yt-dlp'] + YTDLP_ARGS + [
             '--extract-audio', '--audio-format', 'mp3', 
             '--audio-quality', '0', '--output', filepath,
             f'https://www.youtube.com/watch?v={vid}'
         ]
-        subprocess.run(cmd)
+        # Espera o download terminar completamente (Sincronizado)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+            print(f"[*] Sucesso: {filename} salvo em /tmp")
+        except subprocess.CalledProcessError as e:
+            print(f"[!] Erro no download: {e.stderr.decode()}")
+            return "Erro ao processar áudio. Verifique se o FFmpeg está instalado.", 500
 
     return render_3d_page(PLAYER_CONTENT, vid=vid, title=title, filename=filename)
 
 @app.route('/play/<path:name>')
 def play(name):
-    return send_from_directory(PASTA_DOWNLOAD, name)
+    return send_from_directory(PASTA_DOWNLOAD, name, mimetype='audio/mpeg')
 
 @app.route('/force_download/<path:name>')
 def force_download(name):
@@ -221,13 +218,12 @@ def ping():
 def anti_sleep():
     url_render = os.environ.get("RENDER_EXTERNAL_URL")
     if not url_render: return
-    
     while True:
         try:
             requests.get(f"{url_render}/ping", timeout=10)
         except:
             pass
-        time.sleep(600) # Ping a cada 10 min
+        time.sleep(300) # 5 minutos
 
 # --- INICIALIZAÇÃO ---
 if __name__ == '__main__':
